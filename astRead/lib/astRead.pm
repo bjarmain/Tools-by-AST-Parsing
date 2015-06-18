@@ -38,7 +38,6 @@ if you don't export anything, such as for a purely object-oriented module.
 #%root
 #  $depth
 #  \@childNum
-#  \%parent    #todo:get rid of this
 #  \%data
 #     $type
 #     $id
@@ -65,22 +64,25 @@ sub new {
 
    my %root = ( depth => 0, childNum => [] );
    my $parent = \%root;
-
+   my @chain;
+   my $lastDepth = 0;
    open( my $fh, "<", $filename );
    foreach my $line (<$fh>) {
       $line =~ m/^[^\w<]*(.*)/;
       my $depth    = $-[1];
       my $newChild = {
-         parent => $parent,
-         depth  => $depth,
-         data   => getData( $parent->{childNum}, $1 ),
+         depth => $depth,
+         data  => getData( $parent->{childNum}, $1 ),
       };
-      if ( $depth > $parent->{depth} ) {
+      if ( $depth > $lastDepth ) {
+         $lastDepth = $depth;
+         push @chain, $parent;
          $parent = ${ $parent->{childNum} }[-1];
       }
       else {
-         while ( $depth < $parent->{depth} ) {
-            $parent = $parent->{parent};
+         while ( $depth < $lastDepth ) {
+            $lastDepth = $parent->{depth};
+            $parent = pop @chain;
          }
       }
       push @{ $parent->{childNum} }, $newChild;
