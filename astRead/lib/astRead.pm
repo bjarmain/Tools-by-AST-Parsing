@@ -190,6 +190,11 @@ sub rationalizePath{
 
 }
 
+
+#todo: extract all global variables into an array
+#todo: extract all global variables into a list of arrays (one array per file)
+#todo: extract all local variables into a list of arrays (one array per function)
+
 =head2 function2
 
 =cut
