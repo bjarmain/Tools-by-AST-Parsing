@@ -110,7 +110,7 @@ sub getData {
    if ( @$lastLine && exists $lastLine->[-1]->{data}->{region} ) {
       $prevLoc = $lastLine->[-1]->{data}->{region};
    }
-   my $region = getNewRegion( $prevLoc, $rawRegion );
+   my $region = getNewTimeRegion( $prevLoc, $rawRegion );
    my $startLoc = determineLocFrom( $region->{start}, $possibleStart );
    return {
       type     => $type,
@@ -121,7 +121,7 @@ sub getData {
    };
 }
 
-sub getNewRegion {
+sub getNewTimeRegion {
    my ( $lastLoc, $rawRegion ) = @_;
    my $loc = { start => {}, end => {} };
    if ( $rawRegion =~ m/:/ ) {
@@ -148,7 +148,7 @@ sub determineLocFrom {
    ( $a, $b, $c ) = split( /:/, $raw ) if defined $raw;
    if ( defined $a ) {
       if ( defined $c ) {
-         $loc{col} = $b;
+         $loc{col} = $c;
       }
 
       if ( $a !~ m/\A\s*(line|col)\s*\Z/i ) {
@@ -164,7 +164,30 @@ sub determineLocFrom {
          $loc{col} = $b;
       }
    }
+   $loc{file}=rationalizePath($loc{file});
    return \%loc;
+}
+use File::Spec;
+
+sub rationalizePath{
+   my $pathToRationalize=shift;
+   $pathToRationalize =~ s/\\/\//g;
+   $pathToRationalize = File::Spec->canonpath($pathToRationalize);
+   my ($volume,$directories,$file) = File::Spec->splitpath( $pathToRationalize );
+   my @dirs=File::Spec->splitdir($directories);
+   my @newDirs;
+   foreach my $dirSeg(@dirs){
+      if($dirSeg eq '..' && @newDirs &&  $newDirs[-1] ne '..'){
+         pop @newDirs;
+      }
+      else{
+         push @newDirs,$dirSeg;
+      }
+   }
+   $directories=File::Spec->catdir(@newDirs);
+   $pathToRationalize=File::Spec->catpath($volume,$directories,$file);
+   return $pathToRationalize;
+
 }
 
 =head2 function2
