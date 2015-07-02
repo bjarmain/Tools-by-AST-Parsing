@@ -59,6 +59,15 @@ if you don't export anything, such as for a purely object-oriented module.
 
 =cut
 
+my $DECL_VAR        = 'VarDecl';
+my $ORIGINAL        = 'original';
+
+my $IS_USED         ='is_used';
+my $VAR_NAME        ='var_name';
+my $UNDERLYING_TYPE ='underlying_type';
+my $TYPE            ='type';
+
+
 sub new {
    my ( $context, $filename ) = @_;
 
@@ -82,7 +91,7 @@ sub new {
       else {
          while ( $depth < $lastDepth ) {
             $lastDepth = $parent->{depth};
-            $parent = pop @chain;
+            $parent    = pop @chain;
          }
       }
       push @{ $parent->{childNum} }, $newChild;
@@ -112,12 +121,27 @@ sub getData {
    }
    my $region = getNewTimeRegion( $prevLoc, $rawRegion );
    my $startLoc = determineLocFrom( $region->{start}, $possibleStart );
+
+   my %globVar;
+   my %body;
+   if ( $type =~ /$DECL_VAR/i ) {
+      $rest =~ /
+      \s*(used)?       #$IS_USED
+      \s*(\w*)         #$VAR_NAME
+      \s*'([^']*)'     #$UNDERLYING_TYPE
+      \W*([^']*)       #$TYPE
+      /x;
+      my %declVar=($IS_USED=>$1,$VAR_NAME=>$2,$UNDERLYING_TYPE=>$3,$TYPE=>$4);
+      $declVar{$TYPE}=$declVar{$UNDERLYING_TYPE} if !defined $declVar{$TYPE} || 0==length($declVar{$TYPE});
+      $body{$DECL_VAR}=\%declVar;
+   }
+   $body{$ORIGINAL}=$rest;
    return {
       type     => $type,
       id       => $id,
       region   => $region,
       startLoc => $startLoc,
-      rest     => $rest,
+      rest     => \%body,
    };
 }
 
@@ -164,32 +188,45 @@ sub determineLocFrom {
          $loc{col} = $b;
       }
    }
-   $loc{file}=rationalizePath($loc{file});
+   $loc{file} = rationalizePath( $loc{file} );
    return \%loc;
 }
 use File::Spec;
 
-sub rationalizePath{
-   my $pathToRationalize=shift;
+sub rationalizePath {
+   my $pathToRationalize = shift;
    $pathToRationalize =~ s/\\/\//g;
    $pathToRationalize = File::Spec->canonpath($pathToRationalize);
-   my ($volume,$directories,$file) = File::Spec->splitpath( $pathToRationalize );
-   my @dirs=File::Spec->splitdir($directories);
+   my ( $volume, $directories, $file ) =
+     File::Spec->splitpath($pathToRationalize);
+   my @dirs = File::Spec->splitdir($directories);
    my @newDirs;
-   foreach my $dirSeg(@dirs){
-      if($dirSeg eq '..' && @newDirs &&  $newDirs[-1] ne '..'){
+   foreach my $dirSeg (@dirs) {
+      if ( $dirSeg eq '..' && @newDirs && $newDirs[-1] ne '..' ) {
          pop @newDirs;
       }
-      else{
-         push @newDirs,$dirSeg;
+      else {
+         push @newDirs, $dirSeg;
       }
    }
-   $directories=File::Spec->catdir(@newDirs);
-   $pathToRationalize=File::Spec->catpath($volume,$directories,$file);
+   $directories = File::Spec->catdir(@newDirs);
+   $pathToRationalize = File::Spec->catpath( $volume, $directories, $file );
    return $pathToRationalize;
-
 }
 
+sub getGlobalsList {
+   my $self = shift;
+   my $root = $self;
+
+   my @result;
+   push( my @queue, @{ $root->{childNum}[0]->{childNum} } );
+   while ( my $item = shift @queue ) {
+      if ( $item->{data}->{type} =~ /$DECL_VAR/ ) {
+         push @result, $item->{data};
+      }
+   }
+   return \@result;
+}
 
 #todo: extract all global variables into an array
 #todo: extract all global variables into a list of arrays (one array per file)
@@ -198,6 +235,21 @@ sub rationalizePath{
 =head2 function2
 
 =cut
+
+sub printItem {
+   my $self = shift;
+   my $item = shift;
+   print "File:  <"
+     . $item->{startLoc}->{file}
+     . ">  Line:"
+     . $item->{startLoc}->{line} . "  ";
+   my $isUsed=$item->{rest}->{$DECL_VAR}->{$IS_USED}//"UNUSED";
+   print $isUsed." | ";
+   print $item->{rest}->{$DECL_VAR}->{$VAR_NAME}." | ";
+   print $item->{rest}->{$DECL_VAR}->{$UNDERLYING_TYPE}." | ";
+   print $item->{rest}->{$DECL_VAR}->{$TYPE}." | ";
+   print "\n";
+}
 
 sub printTree {
    my $self = shift;
@@ -226,7 +278,7 @@ sub printTree {
               . $item->{data}->{startLoc}->{col}
            )
            . "]"
-           . $item->{data}->{rest} . "\n"
+           . $item->{data}->{rest}->{$ORIGINAL} . "\n"
       );
       if ( exists $item->{childNum} ) {
          unshift @queue, @{ $item->{childNum} };
