@@ -3,6 +3,8 @@ package astRead;
 use 5.006;
 use strict;
 use warnings FATAL => 'all';
+use File::Spec;
+use Moo;
 
 =head1 NAME
 
@@ -35,72 +37,143 @@ if you don't export anything, such as for a purely object-oriented module.
 =head1 SUBROUTINES/METHODS
 
 =head2 new
-#%root
-#  $depth
-#  \@childNum
-#  \%data
-#     $type
-#     $id
-#     $rest
-#     \%region
-#        \%start
-#           $file
-#           $line
-#           $col
-#        \%end
-#           $file
-#           $line
-#           $col
-#     \%startLoc
-#        $file
-#        $line
-#        $col
-#
 
 =cut
 
-my $DECL_VAR        = 'VarDecl';
-my $ORIGINAL        = 'original';
 
-my $IS_USED         ='is_used';
-my $VAR_NAME        ='var_name';
-my $UNDERLYING_TYPE ='underlying_type';
-my $TYPE            ='type';
+my $ROOT                    ='root';             #%
+my   $CHILD_NUM             ='childNum';         #@
+my   $DEPTH                 ='depth';            #$
+my   $DATA                  ='data';             #%
+my     $TYPE                ='type';             #$
+my     $ID                  ='id';               #$
+my     $REST                ='rest';             #%
+my       $ORIGINAL          = 'original';        #$
+my       $DECL_VAR          = 'varDecl';         #%
+my         $IS_USED         = 'is_used';         #$ BOOL
+my         $VAR_NAME        = 'var_name';        #$
+my         $UNDERLYING_TYPE = 'underlying_type'; #$
+my         $VAR_TYPE        ='varType';          #$
+my     $REGION              ='region';           #%
+my       $START             ='start';            #%
+my         $FILE            ='file';             #$
+my         $LINE            ='line';             #$
+my         $COL             ='col';              #$
+my       $END               ='$END';             #%
+##         $FILE            ;                    #$
+##         $LINE            ;                    #$
+##         $COL             ;                    #$
+my     $START_LOC           ='startLoc';         #%
+##         $FILE            ;                    #$
+##         $LINE            ;                    #$
+##         $COL             ;                    #$
 
+has filename => ( is => 'ro', );
 
-sub new {
-   my ( $context, $filename ) = @_;
+sub process {
+   my ($self) = @_;
 
-   my %root = ( depth => 0, childNum => [] );
-   my $parent = \%root;
+   $self->{$ROOT} = { $DEPTH => 0, $CHILD_NUM => [] };
+   my $parent = $self->{$ROOT};
    my @chain;
    my $lastDepth = 0;
-   open( my $fh, "<", $filename );
+   open( my $fh, "<", $self->{filename} );
    foreach my $line (<$fh>) {
       $line =~ m/^[^\w<]*(.*)/;
       my $depth    = $-[1];
       my $newChild = {
-         depth => $depth,
-         data  => getData( $parent->{childNum}, $1 ),
+         $DEPTH => $depth,
+         $DATA  => _getData( $parent->{$CHILD_NUM}, $1 ),
       };
       if ( $depth > $lastDepth ) {
          $lastDepth = $depth;
          push @chain, $parent;
-         $parent = ${ $parent->{childNum} }[-1];
+         $parent = ${ $parent->{$CHILD_NUM} }[-1];
       }
       else {
          while ( $depth < $lastDepth ) {
-            $lastDepth = $parent->{depth};
+            $lastDepth = $parent->{$DEPTH};
             $parent    = pop @chain;
          }
       }
-      push @{ $parent->{childNum} }, $newChild;
+      push @{ $parent->{$CHILD_NUM} }, $newChild;
    }
-   bless \%root, $context;
 }
 
-sub getData {
-   my ( $lastLine, $in ) = @_;
+#Extract all global variables into an array
+sub getGlobalsList {
+   my $self = shift;
+   my $root = $self->{$ROOT};
+
+   my @result;
+   push( my @queue, @{ $root->{$CHILD_NUM}[0]->{$CHILD_NUM} } );
+   while ( my $item = shift @queue ) {
+      if ( $item->{$DATA}->{$TYPE} =~ /VarDecl/ ) {
+         push @result, $item->{$DATA};
+      }
+   }
+   return \@result;
+}
+
+#todo: extract all global variables into a list of arrays (one array per $FILE)
+#todo: extract all local variables into a list of arrays (one array per function)
+
+=head2 function2
+
+=cut
+
+sub printItem {
+   my $self = shift;
+   my $item = shift;
+   print "File:  <"
+     . $item->{$START_LOC}->{$FILE}
+     . ">  Line:"
+     . $item->{$START_LOC}->{$LINE} . "  ";
+   my $isUsed = $item->{$REST}->{$DECL_VAR}->{$IS_USED} // "UNUSED";
+   print $isUsed. " | ";
+   print $item->{$REST}->{$DECL_VAR}->{$VAR_NAME} . " | ";
+   print $item->{$REST}->{$DECL_VAR}->{$UNDERLYING_TYPE} . " | ";
+   print $item->{$REST}->{$DECL_VAR}->{$VAR_TYPE} . " | ";
+   print "\n";
+}
+
+sub printTree {
+   my $self = shift;
+   my $root = $self->{$ROOT};
+   push( my @queue, @{ $root->{$CHILD_NUM} } );
+   while ( my $item = shift @queue ) {
+      print(
+             " " x $item->{$DEPTH}
+           . $item->{$DATA}->{$TYPE} . ", "
+           . $item->{$DATA}->{$ID} . ", " . "<<"
+           . (
+                $item->{$DATA}->{$REGION}->{$START}->{$FILE} . ": "
+              . $item->{$DATA}->{$REGION}->{$START}->{$LINE} . ": "
+              . $item->{$DATA}->{$REGION}->{$START}->{$COL}
+           )
+           . ">" . "<"
+           . (
+                $item->{$DATA}->{$REGION}->{$END}->{$FILE} . ": "
+              . $item->{$DATA}->{$REGION}->{$END}->{$LINE} . ": "
+              . $item->{$DATA}->{$REGION}->{$END}->{$COL}
+           )
+           . ">>" . "["
+           . (
+                $item->{$DATA}->{$START_LOC}->{$FILE} . ": "
+              . $item->{$DATA}->{$START_LOC}->{$LINE} . ": "
+              . $item->{$DATA}->{$START_LOC}->{$COL}
+           )
+           . "]"
+           . $item->{$DATA}->{$REST}->{$ORIGINAL} . "\n"
+      );
+      if ( exists $item->{$CHILD_NUM} ) {
+         unshift @queue, @{ $item->{$CHILD_NUM} };
+      }
+   }
+}
+
+sub _getData {
+   my ( $refSibblingNum, $in ) = @_;
    $in =~ m/
       ^[^\w<]*<*([\w]*)\s*>*       #$1 $type
       \s*(\S*)                     #$2 $id
@@ -114,48 +187,54 @@ sub getData {
    /x;
    my ( $possibleStart, $rest ) = ( $1, $2 );
 
-   my %emptyLoc = ( file => "na", line => "na", col => "na" );
-   my $prevLoc = { start => \%emptyLoc, end => \%emptyLoc };
-   if ( @$lastLine && exists $lastLine->[-1]->{data}->{region} ) {
-      $prevLoc = $lastLine->[-1]->{data}->{region};
+   my %emptyLoc = ( $FILE => "na", $LINE => "na", $COL => "na" );
+   my $prevLoc = { $START => \%emptyLoc, $END => \%emptyLoc };
+   if ( @$refSibblingNum && exists $refSibblingNum->[-1]->{$DATA}->{$REGION} ) {
+      $prevLoc = $refSibblingNum->[-1]->{$DATA}->{$REGION};
    }
-   my $region = getNewTimeRegion( $prevLoc, $rawRegion );
-   my $startLoc = determineLocFrom( $region->{start}, $possibleStart );
+   my $region = _getNewTimeRegion( $prevLoc, $rawRegion );
+   my $startLoc = _determineLocFrom( $region->{$START}, $possibleStart );
 
    my %globVar;
    my %body;
-   if ( $type =~ /$DECL_VAR/i ) {
+   if ( $type =~ /VarDecl/ ) {
       $rest =~ /
       \s*(used)?       #$IS_USED
       \s*(\w*)         #$VAR_NAME
       \s*'([^']*)'     #$UNDERLYING_TYPE
       \W*([^']*)       #$TYPE
       /x;
-      my %declVar=($IS_USED=>$1,$VAR_NAME=>$2,$UNDERLYING_TYPE=>$3,$TYPE=>$4);
-      $declVar{$TYPE}=$declVar{$UNDERLYING_TYPE} if !defined $declVar{$TYPE} || 0==length($declVar{$TYPE});
-      $body{$DECL_VAR}=\%declVar;
+      my %declVar = (
+         $IS_USED         => $1,
+         $VAR_NAME        => $2,
+         $UNDERLYING_TYPE => $3,
+         $VAR_TYPE        => $4
+      );
+      $declVar{$VAR_TYPE} = $declVar{$UNDERLYING_TYPE}
+        if !defined $declVar{$VAR_TYPE} || 0 == length( $declVar{$VAR_TYPE} );
+      $body{$DECL_VAR} = \%declVar;
    }
-   $body{$ORIGINAL}=$rest;
+   $body{$ORIGINAL} = $rest;
    return {
-      type     => $type,
-      id       => $id,
-      region   => $region,
-      startLoc => $startLoc,
-      rest     => \%body,
+      $TYPE      => $type,
+      $ID        => $id,
+      $REST      => \%body,
+      $REGION    => $region,
+      $START_LOC => $startLoc,
    };
 }
 
-sub getNewTimeRegion {
+sub _getNewTimeRegion {
    my ( $lastLoc, $rawRegion ) = @_;
-   my $loc = { start => {}, end => {} };
+   my $loc = { $START => {}, $END => {} };
    if ( $rawRegion =~ m/:/ ) {
       my ( $start, $end ) = split( /,/, $rawRegion );
-      $loc->{start} = determineLocFrom( $lastLoc->{end}, $start );
+      $loc->{$START} = _determineLocFrom( $lastLoc->{$END}, $start );
       if ( defined $end ) {
-         $loc->{end} = determineLocFrom( $loc->{start}, $end );
+         $loc->{$END} = _determineLocFrom( $loc->{$START}, $end );
       }
       else {
-         $loc->{end} = $loc->{start};
+         $loc->{$END} = $loc->{$START};
       }
    }
    else {
@@ -164,7 +243,7 @@ sub getNewTimeRegion {
    return $loc;
 }
 
-sub determineLocFrom {
+sub _determineLocFrom {
    my ( $lastLoc, $raw ) = @_;
    my %loc = ();
    %loc = %$lastLoc if defined $lastLoc;
@@ -172,28 +251,27 @@ sub determineLocFrom {
    ( $a, $b, $c ) = split( /:/, $raw ) if defined $raw;
    if ( defined $a ) {
       if ( defined $c ) {
-         $loc{col} = $c;
+         $loc{$COL} = $c;
       }
 
       if ( $a !~ m/\A\s*(line|col)\s*\Z/i ) {
-         $loc{file} = $a;
-         $loc{line} = $b if defined $b;
+         $loc{$FILE} = $a;
+         $loc{$LINE} = $b if defined $b;
       }
 
       if ( $a =~ m/\A(line)\Z/i ) {
-         $loc{line} = $b;
+         $loc{$LINE} = $b;
       }
 
       if ( $a =~ m/\A\s*(col)\s*\Z/i ) {
-         $loc{col} = $b;
+         $loc{$COL} = $b;
       }
    }
-   $loc{file} = rationalizePath( $loc{file} );
+   $loc{$FILE} = _rationalizePath( $loc{$FILE} );
    return \%loc;
 }
-use File::Spec;
 
-sub rationalizePath {
+sub _rationalizePath {
    my $pathToRationalize = shift;
    $pathToRationalize =~ s/\\/\//g;
    $pathToRationalize = File::Spec->canonpath($pathToRationalize);
@@ -212,78 +290,6 @@ sub rationalizePath {
    $directories = File::Spec->catdir(@newDirs);
    $pathToRationalize = File::Spec->catpath( $volume, $directories, $file );
    return $pathToRationalize;
-}
-
-sub getGlobalsList {
-   my $self = shift;
-   my $root = $self;
-
-   my @result;
-   push( my @queue, @{ $root->{childNum}[0]->{childNum} } );
-   while ( my $item = shift @queue ) {
-      if ( $item->{data}->{type} =~ /$DECL_VAR/ ) {
-         push @result, $item->{data};
-      }
-   }
-   return \@result;
-}
-
-#todo: extract all global variables into an array
-#todo: extract all global variables into a list of arrays (one array per file)
-#todo: extract all local variables into a list of arrays (one array per function)
-
-=head2 function2
-
-=cut
-
-sub printItem {
-   my $self = shift;
-   my $item = shift;
-   print "File:  <"
-     . $item->{startLoc}->{file}
-     . ">  Line:"
-     . $item->{startLoc}->{line} . "  ";
-   my $isUsed=$item->{rest}->{$DECL_VAR}->{$IS_USED}//"UNUSED";
-   print $isUsed." | ";
-   print $item->{rest}->{$DECL_VAR}->{$VAR_NAME}." | ";
-   print $item->{rest}->{$DECL_VAR}->{$UNDERLYING_TYPE}." | ";
-   print $item->{rest}->{$DECL_VAR}->{$TYPE}." | ";
-   print "\n";
-}
-
-sub printTree {
-   my $self = shift;
-   my $root = $self;
-   push( my @queue, @{ $root->{childNum} } );
-   while ( my $item = shift @queue ) {
-      print(
-             " " x $item->{depth}
-           . $item->{data}->{type} . ", "
-           . $item->{data}->{id} . ", " . "<<"
-           . (
-                $item->{data}->{region}->{start}->{file} . ": "
-              . $item->{data}->{region}->{start}->{line} . ": "
-              . $item->{data}->{region}->{start}->{col}
-           )
-           . ">" . "<"
-           . (
-                $item->{data}->{region}->{end}->{file} . ": "
-              . $item->{data}->{region}->{end}->{line} . ": "
-              . $item->{data}->{region}->{end}->{col}
-           )
-           . ">>" . "["
-           . (
-                $item->{data}->{startLoc}->{file} . ": "
-              . $item->{data}->{startLoc}->{line} . ": "
-              . $item->{data}->{startLoc}->{col}
-           )
-           . "]"
-           . $item->{data}->{rest}->{$ORIGINAL} . "\n"
-      );
-      if ( exists $item->{childNum} ) {
-         unshift @queue, @{ $item->{childNum} };
-      }
-   }
 }
 
 =head1 AUTHOR

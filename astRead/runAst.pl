@@ -6,7 +6,8 @@ use lib "lib";
 
 use astRead;
 
-my $ast=astRead->new($ARGV[0]);
+my $ast=astRead->new(filename=>$ARGV[0]);
+$ast->process;
 #$ast->printTree();
 
 my $globalsRef=$ast->getGlobalsList();
