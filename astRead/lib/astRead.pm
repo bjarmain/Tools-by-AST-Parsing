@@ -40,33 +40,36 @@ if you don't export anything, such as for a purely object-oriented module.
 
 =cut
 
-
-my $ROOT                    ='root';             #%
-my   $CHILD_NUM             ='childNum';         #@
-my   $DEPTH                 ='depth';            #$
-my   $DATA                  ='data';             #%
-my     $TYPE                ='type';             #$
-my     $ID                  ='id';               #$
-my     $REST                ='rest';             #%
-my       $ORIGINAL          = 'original';        #$
-my       $DECL_VAR          = 'varDecl';         #%
-my         $IS_USED         = 'is_used';         #$ BOOL
-my         $VAR_NAME        = 'var_name';        #$
-my         $UNDERLYING_TYPE = 'underlying_type'; #$
-my         $VAR_TYPE        ='varType';          #$
-my     $REGION              ='region';           #%
-my       $START             ='start';            #%
-my         $FILE            ='file';             #$
-my         $LINE            ='line';             #$
-my         $COL             ='col';              #$
-my       $END               ='$END';             #%
-##         $FILE            ;                    #$
-##         $LINE            ;                    #$
-##         $COL             ;                    #$
-my     $START_LOC           ='startLoc';         #%
-##         $FILE            ;                    #$
-##         $LINE            ;                    #$
-##         $COL             ;                    #$
+my $ROOT                    ='root';             # %
+my   $CHILD_NUM             ='childNum';         # @ note recursive childern
+my   $DEPTH                 ='depth';            # $
+my   $DATA                  ='data';             # %
+my     $TYPE                ='type';             # $
+my     $ID                  ='id';               # $  eg 0x4f3ad88
+my     $REST                ='rest';             # %
+my       $ORIGINAL          ='original';         # $
+my       $DECL_VAR          ='varDecl';          # %
+my         $IS_USED         ='is_used';          # $ BOOL
+my         $IS_EXTERN       ='is_extern';        # $ BOOL
+my         $IS_CONST        ='is_const';         # $ BOOL
+my         $VAR_NAME        ='var_name';         # $
+my         $UNDERLYING_TYPE ='underlying_type';  # $
+my         $VAR_TYPE        ='varType';          # $
+##         $ID              ;                    # $  eg 0x4f3ad88
+my         $PREV_ID         ='prevId';           # $  eg 0x4f3ad88
+my     $REGION              ='region';           # %
+my       $START             ='start';            # %
+my         $FILE            ='file';             # $
+my         $LINE            ='line';             # $
+my         $COL             ='col';              # $
+my       $END               ='$END';             # %
+##         $FILE            ;                    # $
+##         $LINE            ;                    # $
+##         $COL             ;                    # $
+my     $START_LOC           ='startLoc';         # %
+##         $FILE            ;                    # $
+##         $LINE            ;                    # $
+##         $COL             ;                    # $
 
 has filename => ( is => 'ro', );
 
@@ -105,14 +108,32 @@ sub getGlobalsList {
    my $self = shift;
    my $root = $self->{$ROOT};
 
-   my @result;
+   my %result;
    push( my @queue, @{ $root->{$CHILD_NUM}[0]->{$CHILD_NUM} } );
+   my $_container;
+   my $i;
    while ( my $item = shift @queue ) {
       if ( $item->{$DATA}->{$TYPE} =~ /VarDecl/ ) {
-         push @result, $item->{$DATA};
+         my $prevId = $item->{$DATA}->{$REST}->{$DECL_VAR}->{$PREV_ID};
+         my $curtId = $item->{$DATA}->{$ID};
+         my $rootId = $curtId;
+         if ( defined($prevId) ){
+            $rootId = $prevId;
+         }
+         $_container=\@{$result{$rootId}};
+         if($item->{$DATA}->{$REST}->{$DECL_VAR}->{$VAR_NAME}eq"fmCommsFuncs")
+         {
+            $_container=\@{$result{$rootId}};
+         }
+         if($item->{$DATA}->{$REST}->{$DECL_VAR}->{$IS_EXTERN}){
+            push @$_container, $item->{$DATA};
+         }
+         else{
+            unshift @$_container, $item->{$DATA};
+         }
       }
    }
-   return \@result;
+   return \%result;
 }
 
 #todo: extract all global variables into a list of arrays (one array per $FILE)
@@ -122,20 +143,61 @@ sub getGlobalsList {
 
 =cut
 
-sub printItem {
-   my $self = shift;
-   my $item = shift;
-   print "File:  <"
-     . $item->{$START_LOC}->{$FILE}
-     . ">  Line:"
-     . $item->{$START_LOC}->{$LINE} . "  ";
-   my $isUsed = $item->{$REST}->{$DECL_VAR}->{$IS_USED} // "UNUSED";
-   print $isUsed. " | ";
-   print $item->{$REST}->{$DECL_VAR}->{$VAR_NAME} . " | ";
-   print $item->{$REST}->{$DECL_VAR}->{$UNDERLYING_TYPE} . " | ";
-   print $item->{$REST}->{$DECL_VAR}->{$VAR_TYPE} . " | ";
-   print "\n";
+sub get_file_for{
+   my ($self,$item) = @_;
+   return($item->{$START_LOC}->{$FILE});
 }
+
+sub get_line_for{
+   my ($self,$item) = @_;
+   return($item->{$START_LOC}->{$LINE});
+}
+
+sub get_is_used_string{
+   my ($self,$item) = @_;
+   return($item->{$REST}->{$DECL_VAR}->{$IS_USED} // "UNUSED");
+}
+
+sub get_var_name{
+   my ($self,$item) = @_;
+   return($item->{$REST}->{$DECL_VAR}->{$VAR_NAME} );
+}
+
+sub get_underlying_type{
+   my ($self,$item) = @_;
+   return($item->{$REST}->{$DECL_VAR}->{$UNDERLYING_TYPE} );
+}
+
+sub get_var_type{
+   my ($self,$item) = @_;
+   return($item->{$REST}->{$DECL_VAR}->{$VAR_TYPE} );
+}
+
+sub get_is_const{
+   my ($self,$item) = @_;
+   return($item->{$REST}->{$DECL_VAR}->{$IS_CONST});
+}
+
+
+sub printGlobal {
+   my $self = shift;
+   my $itemNum = shift;
+   my $i=0;
+   foreach my $item(@$itemNum)
+   {
+      if($i++ > 0){
+         print (" "x5);
+         print ("- ");
+      }
+      print "File:  <". $self->get_file_for($item) 
+      . ">  Line:". $self->get_line_for($item) . " | ";
+      print $self->get_is_used_string($item). " | ";
+      print $self->get_var_name($item) . " | ";
+      print $self->get_underlying_type($item) . " | ";
+      print $self->get_var_type($item) . " | ";
+      print "--CONST-- | " if $self->get_is_const($item);
+      print "\n";
+   } }
 
 sub printTree {
    my $self = shift;
@@ -177,10 +239,11 @@ sub _getData {
    $in =~ m/
       ^[^\w<]*<*([\w]*)\s*>*       #$1 $type
       \s*(\S*)                     #$2 $id
-      [^<]*<*([^>]*)>*             #$3 $rawRegion
-      \s*(.*\S*)                   #$4 $rest
+      \s*(?:prev\s*(\S*))?         #$3 $prevId
+      [^<]*<*([^>]*)>*             #$4 $rawRegion
+      \s*(.*\S*)                   #$5 $rest
    /x;
-   my ( $type, $id, $rawRegion, $rawRest ) = ( $1, $2, $3, $4 );
+   my ( $type, $id, $prevId, $rawRegion, $rawRest ) = ( $1, $2, $3, $4, $5 );
    $rawRest =~ m/
    \s*((?:line|col)(?::\d*\s*)*)?  #$1 $possibleStart
       \s*(.*\S*)                   #$2 $rest
@@ -198,21 +261,7 @@ sub _getData {
    my %globVar;
    my %body;
    if ( $type =~ /VarDecl/ ) {
-      $rest =~ /
-      \s*(used)?       #$IS_USED
-      \s*(\w*)         #$VAR_NAME
-      \s*'([^']*)'     #$UNDERLYING_TYPE
-      \W*([^']*)       #$TYPE
-      /x;
-      my %declVar = (
-         $IS_USED         => $1,
-         $VAR_NAME        => $2,
-         $UNDERLYING_TYPE => $3,
-         $VAR_TYPE        => $4
-      );
-      $declVar{$VAR_TYPE} = $declVar{$UNDERLYING_TYPE}
-        if !defined $declVar{$VAR_TYPE} || 0 == length( $declVar{$VAR_TYPE} );
-      $body{$DECL_VAR} = \%declVar;
+      $body{$DECL_VAR} = _getVarDecl( $rest, $id, $prevId );
    }
    $body{$ORIGINAL} = $rest;
    return {
@@ -222,6 +271,32 @@ sub _getData {
       $REGION    => $region,
       $START_LOC => $startLoc,
    };
+}
+
+sub _getVarDecl {
+   my ( $rest, $id, $prevId ) = @_;
+   $rest =~ /
+   \s*(used)?       #$IS_USED
+   \s*(\w*)         #$VAR_NAME
+   \s*'([^']*)'     #$UNDERLYING_TYPE
+   \W*([^']*)       #$TYPE
+   /x;
+   my $underlying_type = $3;
+   my $type = $4;
+   my $isConst=($type eq "cinit")||($underlying_type=~/const/);
+   my %declVar = (
+      $IS_USED         => $1,
+      $VAR_NAME        => $2,
+      $UNDERLYING_TYPE => $underlying_type,
+      $VAR_TYPE        => $4,
+      $ID              => $id,
+      $PREV_ID         => $prevId,
+      $IS_EXTERN       => $type eq "extern",
+      $IS_CONST        => $isConst,
+   );
+   $declVar{$VAR_TYPE} = $declVar{$UNDERLYING_TYPE}
+     if !defined $declVar{$VAR_TYPE} || 0 == length( $declVar{$VAR_TYPE} );
+   return \%declVar;
 }
 
 sub _getNewTimeRegion {

@@ -1,4 +1,4 @@
-#!/bin/usr/perl
+#!/usr/bin/perl
 use strict;
 use warnings;
 use 5.018;
@@ -13,7 +13,7 @@ $ast->process;
 my $globalsRef=$ast->getGlobalsList();
 
 my $iterator;
-for my $myGlobal(@$globalsRef){
+for my $name(sort keys %$globalsRef){
    print ++$iterator . ': ';
-   $ast->printItem($myGlobal);
+   $ast->printGlobal($globalsRef->{$name});
 }
