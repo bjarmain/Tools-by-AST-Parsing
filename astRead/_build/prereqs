@@ -1,8 +1,8 @@
 do{ my $x = {
-       'recommends' => {},
        'build_requires' => {
                              'Test::More' => 0
                            },
+       'recommends' => {},
        'requires' => {},
        'conflicts' => {}
      };

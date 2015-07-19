@@ -6,6 +6,8 @@ use warnings FATAL => 'all';
 use File::Spec;
 use Moo;
 
+use astGlobalsObj;
+
 =head1 NAME
 
 astRead - The great new astRead!
@@ -49,14 +51,6 @@ my     $ID                  ='id';               # $  eg 0x4f3ad88
 my     $REST                ='rest';             # %
 my       $ORIGINAL          ='original';         # $
 my       $DECL_VAR          ='varDecl';          # %
-my         $IS_USED         ='is_used';          # $ BOOL
-my         $IS_EXTERN       ='is_extern';        # $ BOOL
-my         $IS_CONST        ='is_const';         # $ BOOL
-my         $VAR_NAME        ='var_name';         # $
-my         $UNDERLYING_TYPE ='underlying_type';  # $
-my         $VAR_TYPE        ='varType';          # $
-##         $ID              ;                    # $  eg 0x4f3ad88
-my         $PREV_ID         ='prevId';           # $  eg 0x4f3ad88
 my     $REGION              ='region';           # %
 my       $START             ='start';            # %
 my         $FILE            ='file';             # $
@@ -70,6 +64,10 @@ my     $START_LOC           ='startLoc';         # %
 ##         $FILE            ;                    # $
 ##         $LINE            ;                    # $
 ##         $COL             ;                    # $
+
+
+my $PAYLOAD='payload';
+my $LOCATION='location';
 
 has filename => ( is => 'ro', );
 
@@ -110,26 +108,28 @@ sub getGlobalsList {
 
    my %result;
    push( my @queue, @{ $root->{$CHILD_NUM}[0]->{$CHILD_NUM} } );
-   my $_container;
+   my $container;
    my $i;
    while ( my $item = shift @queue ) {
       if ( $item->{$DATA}->{$TYPE} =~ /VarDecl/ ) {
-         my $prevId = $item->{$DATA}->{$REST}->{$DECL_VAR}->{$PREV_ID};
          my $curtId = $item->{$DATA}->{$ID};
          my $rootId = $curtId;
+         my $payload=$item->{$DATA}->{$REST}->{$DECL_VAR};
+         my $prevId = $payload->prevId();
          if ( defined($prevId) ){
             $rootId = $prevId;
          }
-         $_container=\@{$result{$rootId}};
-         if($item->{$DATA}->{$REST}->{$DECL_VAR}->{$VAR_NAME}eq"fmCommsFuncs")
-         {
-            $_container=\@{$result{$rootId}};
-         }
-         if($item->{$DATA}->{$REST}->{$DECL_VAR}->{$IS_EXTERN}){
-            push @$_container, $item->{$DATA};
+         $container=\@{$result{$rootId}};
+         my $construct={
+            $PAYLOAD=>$payload,
+            $LOCATION=>$item->{$DATA}->{$START_LOC},
+         };
+
+         if($payload->is_extern()){
+            push @$container,$construct;
          }
          else{
-            unshift @$_container, $item->{$DATA};
+            unshift @$container, $construct;
          }
       }
    }
@@ -145,37 +145,12 @@ sub getGlobalsList {
 
 sub get_file_for{
    my ($self,$item) = @_;
-   return($item->{$START_LOC}->{$FILE});
+   return($item->{$FILE});
 }
 
 sub get_line_for{
    my ($self,$item) = @_;
-   return($item->{$START_LOC}->{$LINE});
-}
-
-sub get_is_used_string{
-   my ($self,$item) = @_;
-   return($item->{$REST}->{$DECL_VAR}->{$IS_USED} // "UNUSED");
-}
-
-sub get_var_name{
-   my ($self,$item) = @_;
-   return($item->{$REST}->{$DECL_VAR}->{$VAR_NAME} );
-}
-
-sub get_underlying_type{
-   my ($self,$item) = @_;
-   return($item->{$REST}->{$DECL_VAR}->{$UNDERLYING_TYPE} );
-}
-
-sub get_var_type{
-   my ($self,$item) = @_;
-   return($item->{$REST}->{$DECL_VAR}->{$VAR_TYPE} );
-}
-
-sub get_is_const{
-   my ($self,$item) = @_;
-   return($item->{$REST}->{$DECL_VAR}->{$IS_CONST});
+   return($item->{$LINE});
 }
 
 
@@ -189,15 +164,17 @@ sub printGlobal {
          print (" "x5);
          print ("- ");
       }
-      print "File:  <". $self->get_file_for($item) 
-      . ">  Line:". $self->get_line_for($item) . " | ";
-      print $self->get_is_used_string($item). " | ";
-      print $self->get_var_name($item) . " | ";
-      print $self->get_underlying_type($item) . " | ";
-      print $self->get_var_type($item) . " | ";
-      print "--CONST-- | " if $self->get_is_const($item);
+      print "File:  <". $self->get_file_for($item->{$LOCATION})
+      . ">  Line:". $self->get_line_for($item->{$LOCATION}) . " | ";
+      print $item->{$PAYLOAD}->$GET_IS_USED_STRING($item). " | ";
+      print $item->{$PAYLOAD}->$VAR_NAME. " | ";
+      print $item->{$PAYLOAD}->$UNDERLYING_TYPE. " | ";
+      print $item->{$PAYLOAD}->$VAR_TYPE. " | ";
+      print "--CONST-- | " if $item->{$PAYLOAD}->$IS_CONST;
       print "\n";
-   } }
+   }
+}
+
 
 sub printTree {
    my $self = shift;
@@ -261,7 +238,7 @@ sub _getData {
    my %globVar;
    my %body;
    if ( $type =~ /VarDecl/ ) {
-      $body{$DECL_VAR} = _getVarDecl( $rest, $id, $prevId );
+      $body{$DECL_VAR} =  astGlobalsObj::getVarDecl( $rest, $id, $prevId );
    }
    $body{$ORIGINAL} = $rest;
    return {
@@ -273,31 +250,6 @@ sub _getData {
    };
 }
 
-sub _getVarDecl {
-   my ( $rest, $id, $prevId ) = @_;
-   $rest =~ /
-   \s*(used)?       #$IS_USED
-   \s*(\w*)         #$VAR_NAME
-   \s*'([^']*)'     #$UNDERLYING_TYPE
-   \W*([^']*)       #$TYPE
-   /x;
-   my $underlying_type = $3;
-   my $type = $4;
-   my $isConst=($type eq "cinit")||($underlying_type=~/const/);
-   my %declVar = (
-      $IS_USED         => $1,
-      $VAR_NAME        => $2,
-      $UNDERLYING_TYPE => $underlying_type,
-      $VAR_TYPE        => $4,
-      $ID              => $id,
-      $PREV_ID         => $prevId,
-      $IS_EXTERN       => $type eq "extern",
-      $IS_CONST        => $isConst,
-   );
-   $declVar{$VAR_TYPE} = $declVar{$UNDERLYING_TYPE}
-     if !defined $declVar{$VAR_TYPE} || 0 == length( $declVar{$VAR_TYPE} );
-   return \%declVar;
-}
 
 sub _getNewTimeRegion {
    my ( $lastLoc, $rawRegion ) = @_;
