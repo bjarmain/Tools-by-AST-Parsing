@@ -4,6 +4,13 @@ use 5.006;
 use strict;
 use warnings FATAL => 'all';
 
+use File::Spec;
+use Moo;
+
+use Exporter qw(import);
+our @EXPORT = qw(determineLocFrom );
+
+
 =head1 NAME
 
 astfileLocn - The great new astfileLocn!
@@ -34,8 +41,83 @@ A list of functions that can be exported.  You can delete this section
 if you don't export anything, such as for a purely object-oriented module.
 
 =head1 SUBROUTINES/METHODS
+=cut
+
+my         $FILE            ='file';             # $
+my         $LINE            ='line';             # $
+my         $COL             ='col';              # $
 
 
+sub determineLocFrom {
+   my ($object, $lastLoc, $raw ) = @_;
+   my %loc = ();
+   %loc = %$lastLoc if defined $lastLoc;
+   my ( $a, $b, $c );
+   ( $a, $b, $c ) = split( /:/, $raw ) if defined $raw;
+   if ( defined $a ) {
+      if ( defined $c ) {
+         $loc{$COL} = $c;
+      }
+
+      if ( $a !~ m/\A\s*(line|col)\s*\Z/i ) {
+         $loc{$FILE} = $a;
+         $loc{$LINE} = $b if defined $b;
+      }
+
+      if ( $a =~ m/\A(line)\Z/i ) {
+         $loc{$LINE} = $b;
+      }
+
+      if ( $a =~ m/\A\s*(col)\s*\Z/i ) {
+         $loc{$COL} = $b;
+      }
+   }
+   $loc{$FILE} = _rationalizePath( $loc{$FILE} );
+   bless \%loc,$object;
+}
+
+sub _rationalizePath {
+   my $pathToRationalize = shift;
+   $pathToRationalize =~ s/\\/\//g;
+   $pathToRationalize = File::Spec->canonpath($pathToRationalize);
+   my ( $volume, $directories, $file ) =
+     File::Spec->splitpath($pathToRationalize);
+   my @dirs = File::Spec->splitdir($directories);
+   my @newDirs;
+   foreach my $dirSeg (@dirs) {
+      if ( $dirSeg eq '..' && @newDirs && $newDirs[-1] ne '..' ) {
+         pop @newDirs;
+      }
+      else {
+         push @newDirs, $dirSeg;
+      }
+   }
+   $directories = File::Spec->catdir(@newDirs);
+   $pathToRationalize = File::Spec->catpath( $volume, $directories, $file );
+   return $pathToRationalize;
+}
+
+sub newEmptyLoc{
+   bless{ $FILE => "na", $LINE => "na", $COL => "na" },shift;
+}
+
+sub get_file_for{
+   my ($self) = @_;
+   return($self->{$FILE});
+}
+
+sub get_line_for{
+   my ($self) = @_;
+   return($self->{$LINE});
+}
+
+
+sub printableLoc{
+   my $self=shift;
+     $self->{$FILE} . ": "
+   . $self->{$LINE} . ": "
+   . $self->{$COL}
+}
 
 
 

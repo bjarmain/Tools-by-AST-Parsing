@@ -3,10 +3,11 @@ package astRead;
 use 5.006;
 use strict;
 use warnings FATAL => 'all';
-use File::Spec;
+
 use Moo;
 
 use astGlobalsObj;
+use astfileLocn;
 
 =head1 NAME
 
@@ -50,20 +51,11 @@ my     $TYPE                ='type';             # $
 my     $ID                  ='id';               # $  eg 0x4f3ad88
 my     $REST                ='rest';             # %
 my       $ORIGINAL          ='original';         # $
-my       $DECL_VAR          ='varDecl';          # %
+my       $DECL_VAR          ='varDecl';          # % obj
 my     $REGION              ='region';           # %
-my       $START             ='start';            # %
-my         $FILE            ='file';             # $
-my         $LINE            ='line';             # $
-my         $COL             ='col';              # $
-my       $END               ='$END';             # %
-##         $FILE            ;                    # $
-##         $LINE            ;                    # $
-##         $COL             ;                    # $
-my     $START_LOC           ='startLoc';         # %
-##         $FILE            ;                    # $
-##         $LINE            ;                    # $
-##         $COL             ;                    # $
+my       $START             ='start';            # % todo obj
+my       $END               ='end';             # % todo obj
+my     $START_LOC           ='startLoc';         # % todo obj
 
 
 my $PAYLOAD='payload';
@@ -143,15 +135,6 @@ sub getGlobalsList {
 
 =cut
 
-sub get_file_for{
-   my ($self,$item) = @_;
-   return($item->{$FILE});
-}
-
-sub get_line_for{
-   my ($self,$item) = @_;
-   return($item->{$LINE});
-}
 
 
 sub printGlobal {
@@ -164,8 +147,8 @@ sub printGlobal {
          print (" "x5);
          print ("- ");
       }
-      print "File:  <". $self->get_file_for($item->{$LOCATION})
-      . ">  Line:". $self->get_line_for($item->{$LOCATION}) . " | ";
+      print "File:  <". $item->{$LOCATION}->get_file_for()
+      . ">  Line:". $item->{$LOCATION}->get_line_for() . " | ";
       print $item->{$PAYLOAD}->$GET_IS_USED_STRING($item). " | ";
       print $item->{$PAYLOAD}->$VAR_NAME. " | ";
       print $item->{$PAYLOAD}->$UNDERLYING_TYPE. " | ";
@@ -186,21 +169,15 @@ sub printTree {
            . $item->{$DATA}->{$TYPE} . ", "
            . $item->{$DATA}->{$ID} . ", " . "<<"
            . (
-                $item->{$DATA}->{$REGION}->{$START}->{$FILE} . ": "
-              . $item->{$DATA}->{$REGION}->{$START}->{$LINE} . ": "
-              . $item->{$DATA}->{$REGION}->{$START}->{$COL}
+                $item->{$DATA}->{$REGION}->{$START}->printableLoc()
            )
            . ">" . "<"
            . (
-                $item->{$DATA}->{$REGION}->{$END}->{$FILE} . ": "
-              . $item->{$DATA}->{$REGION}->{$END}->{$LINE} . ": "
-              . $item->{$DATA}->{$REGION}->{$END}->{$COL}
+                $item->{$DATA}->{$REGION}->{$END}->printableLoc()
            )
            . ">>" . "["
            . (
-                $item->{$DATA}->{$START_LOC}->{$FILE} . ": "
-              . $item->{$DATA}->{$START_LOC}->{$LINE} . ": "
-              . $item->{$DATA}->{$START_LOC}->{$COL}
+                $item->{$DATA}->{$START_LOC}->printableLoc()
            )
            . "]"
            . $item->{$DATA}->{$REST}->{$ORIGINAL} . "\n"
@@ -227,13 +204,13 @@ sub _getData {
    /x;
    my ( $possibleStart, $rest ) = ( $1, $2 );
 
-   my %emptyLoc = ( $FILE => "na", $LINE => "na", $COL => "na" );
-   my $prevLoc = { $START => \%emptyLoc, $END => \%emptyLoc };
+   my $emptyLoc = astfileLocn->newEmptyLoc();
+   my $prevLoc = { $START => $emptyLoc, $END => $emptyLoc };
    if ( @$refSibblingNum && exists $refSibblingNum->[-1]->{$DATA}->{$REGION} ) {
       $prevLoc = $refSibblingNum->[-1]->{$DATA}->{$REGION};
    }
    my $region = _getNewTimeRegion( $prevLoc, $rawRegion );
-   my $startLoc = _determineLocFrom( $region->{$START}, $possibleStart );
+   my $startLoc = astfileLocn->determineLocFrom( $region->{$START}, $possibleStart );
 
    my %globVar;
    my %body;
@@ -256,9 +233,9 @@ sub _getNewTimeRegion {
    my $loc = { $START => {}, $END => {} };
    if ( $rawRegion =~ m/:/ ) {
       my ( $start, $end ) = split( /,/, $rawRegion );
-      $loc->{$START} = _determineLocFrom( $lastLoc->{$END}, $start );
+      $loc->{$START} = astfileLocn->determineLocFrom( $lastLoc->{$END}, $start );
       if ( defined $end ) {
-         $loc->{$END} = _determineLocFrom( $loc->{$START}, $end );
+         $loc->{$END} = astfileLocn->determineLocFrom( $loc->{$START}, $end );
       }
       else {
          $loc->{$END} = $loc->{$START};
@@ -270,54 +247,6 @@ sub _getNewTimeRegion {
    return $loc;
 }
 
-sub _determineLocFrom {
-   my ( $lastLoc, $raw ) = @_;
-   my %loc = ();
-   %loc = %$lastLoc if defined $lastLoc;
-   my ( $a, $b, $c );
-   ( $a, $b, $c ) = split( /:/, $raw ) if defined $raw;
-   if ( defined $a ) {
-      if ( defined $c ) {
-         $loc{$COL} = $c;
-      }
-
-      if ( $a !~ m/\A\s*(line|col)\s*\Z/i ) {
-         $loc{$FILE} = $a;
-         $loc{$LINE} = $b if defined $b;
-      }
-
-      if ( $a =~ m/\A(line)\Z/i ) {
-         $loc{$LINE} = $b;
-      }
-
-      if ( $a =~ m/\A\s*(col)\s*\Z/i ) {
-         $loc{$COL} = $b;
-      }
-   }
-   $loc{$FILE} = _rationalizePath( $loc{$FILE} );
-   return \%loc;
-}
-
-sub _rationalizePath {
-   my $pathToRationalize = shift;
-   $pathToRationalize =~ s/\\/\//g;
-   $pathToRationalize = File::Spec->canonpath($pathToRationalize);
-   my ( $volume, $directories, $file ) =
-     File::Spec->splitpath($pathToRationalize);
-   my @dirs = File::Spec->splitdir($directories);
-   my @newDirs;
-   foreach my $dirSeg (@dirs) {
-      if ( $dirSeg eq '..' && @newDirs && $newDirs[-1] ne '..' ) {
-         pop @newDirs;
-      }
-      else {
-         push @newDirs, $dirSeg;
-      }
-   }
-   $directories = File::Spec->catdir(@newDirs);
-   $pathToRationalize = File::Spec->catpath( $volume, $directories, $file );
-   return $pathToRationalize;
-}
 
 =head1 AUTHOR
 
