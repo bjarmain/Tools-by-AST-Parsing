@@ -7,7 +7,7 @@ use warnings FATAL => 'all';
 use Moo;
 
 use astGlobalsObj;
-use astfileLocn;
+use astFileLocn;
 
 =head1 NAME
 
@@ -70,7 +70,7 @@ sub process {
    my $parent = $self->{$ROOT};
    my @chain;
    my $lastDepth = 0;
-   open( my $fh, "<", $self->{filename} );
+   open( my $fh, "<", $self->{filename} ) or die $!;
    foreach my $line (<$fh>) {
       $line =~ m/^[^\w<]*(.*)/;
       my $depth    = $-[1];
@@ -204,13 +204,13 @@ sub _getData {
    /x;
    my ( $possibleStart, $rest ) = ( $1, $2 );
 
-   my $emptyLoc = astfileLocn->newEmptyLoc();
+   my $emptyLoc = newEmptyLoc();
    my $prevLoc = { $START => $emptyLoc, $END => $emptyLoc };
    if ( @$refSibblingNum && exists $refSibblingNum->[-1]->{$DATA}->{$REGION} ) {
       $prevLoc = $refSibblingNum->[-1]->{$DATA}->{$REGION};
    }
    my $region = _getNewTimeRegion( $prevLoc, $rawRegion );
-   my $startLoc = astfileLocn->determineLocFrom( $region->{$START}, $possibleStart );
+   my $startLoc = determineLocFrom( $region->{$START}, $possibleStart );
 
    my %globVar;
    my %body;
@@ -233,9 +233,9 @@ sub _getNewTimeRegion {
    my $loc = { $START => {}, $END => {} };
    if ( $rawRegion =~ m/:/ ) {
       my ( $start, $end ) = split( /,/, $rawRegion );
-      $loc->{$START} = astfileLocn->determineLocFrom( $lastLoc->{$END}, $start );
+      $loc->{$START} = determineLocFrom( $lastLoc->{$END}, $start );
       if ( defined $end ) {
-         $loc->{$END} = astfileLocn->determineLocFrom( $loc->{$START}, $end );
+         $loc->{$END} = determineLocFrom( $loc->{$START}, $end );
       }
       else {
          $loc->{$END} = $loc->{$START};

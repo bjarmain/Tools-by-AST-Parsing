@@ -2,8 +2,8 @@ do{ my $x = {
        'build_requires' => {
                              'Test::More' => 0
                            },
+       'conflicts' => {},
        'recommends' => {},
-       'requires' => {},
-       'conflicts' => {}
+       'requires' => {}
      };
 $x; }

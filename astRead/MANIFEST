@@ -3,7 +3,7 @@
 AST.txt
 Build.PL
 Changes
-lib/astfileLocn.pm
+lib/astFileLocn.pm
 lib/astGlobalsObj.pm
 lib/astRead.pm
 MANIFEST			This list of files

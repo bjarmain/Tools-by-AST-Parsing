@@ -1,4 +1,4 @@
-package astfileLocn;
+package astFileLocn;
 
 use 5.006;
 use strict;
@@ -8,8 +8,7 @@ use File::Spec;
 use Moo;
 
 use Exporter qw(import);
-our @EXPORT = qw(determineLocFrom );
-
+our @EXPORT = qw(determineLocFrom newEmptyLoc);
 
 =head1 NAME
 
@@ -22,7 +21,6 @@ Version 0.01
 =cut
 
 our $VERSION = '0.01';
-
 
 =head1 SYNOPSIS
 
@@ -43,37 +41,60 @@ if you don't export anything, such as for a purely object-oriented module.
 =head1 SUBROUTINES/METHODS
 =cut
 
-my         $FILE            ='file';             # $
-my         $LINE            ='line';             # $
-my         $COL             ='col';              # $
+my $FILE = 'file';    # $
+my $LINE = 'line';    # $
+my $COL  = 'col';     # $
 
+has $FILE => ( is => 'ro', );
+has $LINE => ( is => 'ro', );
+has $COL  => ( is => 'ro', );
+
+
+sub get_file_for {
+   my ($self) = @_;
+   return ( $self->{$FILE} );
+}
+
+sub get_line_for {
+   my ($self) = @_;
+   return ( $self->{$LINE} );
+}
+
+sub printableLoc {
+   my $self = shift;
+   $self->{$FILE} . ": " . $self->{$LINE} . ": " . $self->{$COL};
+}
+
+sub newEmptyLoc {
+   astFileLocn->new( $FILE => "na", $LINE => "na", $COL => "na" );
+}
 
 sub determineLocFrom {
-   my ($object, $lastLoc, $raw ) = @_;
-   my %loc = ();
-   %loc = %$lastLoc if defined $lastLoc;
+   my ( $lastLoc, $raw ) = @_;
+
+   my ( $file, $line, $col );
+   ( $file, $line, $col ) = @{$lastLoc}{ $FILE, $LINE, $COL } if defined $lastLoc;
    my ( $a, $b, $c );
    ( $a, $b, $c ) = split( /:/, $raw ) if defined $raw;
    if ( defined $a ) {
       if ( defined $c ) {
-         $loc{$COL} = $c;
+         $col = $c;
       }
 
       if ( $a !~ m/\A\s*(line|col)\s*\Z/i ) {
-         $loc{$FILE} = $a;
-         $loc{$LINE} = $b if defined $b;
+         $file = $a;
+         $line = $b if defined $b;
       }
-
       if ( $a =~ m/\A(line)\Z/i ) {
-         $loc{$LINE} = $b;
+         $line = $b;
       }
 
       if ( $a =~ m/\A\s*(col)\s*\Z/i ) {
-         $loc{$COL} = $b;
+         $col = $b;
       }
    }
-   $loc{$FILE} = _rationalizePath( $loc{$FILE} );
-   bless \%loc,$object;
+   $file = _rationalizePath($file);
+   astFileLocn->new( $FILE => $file, $LINE => $line, $COL => $col );
 }
 
 sub _rationalizePath {
@@ -96,30 +117,6 @@ sub _rationalizePath {
    $pathToRationalize = File::Spec->catpath( $volume, $directories, $file );
    return $pathToRationalize;
 }
-
-sub newEmptyLoc{
-   bless{ $FILE => "na", $LINE => "na", $COL => "na" },shift;
-}
-
-sub get_file_for{
-   my ($self) = @_;
-   return($self->{$FILE});
-}
-
-sub get_line_for{
-   my ($self) = @_;
-   return($self->{$LINE});
-}
-
-
-sub printableLoc{
-   my $self=shift;
-     $self->{$FILE} . ": "
-   . $self->{$LINE} . ": "
-   . $self->{$COL}
-}
-
-
 
 =head1 AUTHOR
 
@@ -210,4 +207,4 @@ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 =cut
 
-1; # End of astfileLocn
+1;    # End of astfileLocn
