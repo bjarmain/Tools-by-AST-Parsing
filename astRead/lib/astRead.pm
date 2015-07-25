@@ -1,6 +1,6 @@
 package astRead;
 
-use 5.006;
+use 5.010;
 use strict;
 use warnings FATAL => 'all';
 
@@ -51,15 +51,16 @@ my     $TYPE                ='type';             # $
 my     $ID                  ='id';               # $  eg 0x4f3ad88
 my     $REST                ='rest';             # %
 my       $ORIGINAL          ='original';         # $
-my       $DECL_VAR          ='varDecl';          # % obj
+my       $DECL_VAR_OBJ          ='varDecl';          # % obj
 my     $REGION              ='region';           # %
-my       $START             ='start';            # % todo obj
-my       $END               ='end';             # % todo obj
-my     $START_LOC           ='startLoc';         # % todo obj
+my       $START_OBJ             ='start';            # % todo obj
+my       $END_OBJ               ='end';             # % todo obj
+my     $START_LOC_OBJ           ='startLoc';         # % todo obj
 
 
-my $PAYLOAD='payload';
-my $LOCATION='location';
+my $PAYLOAD_OBJ='payload';
+my $LOCATION_OBJ='location';
+
 
 has filename => ( is => 'ro', );
 
@@ -94,6 +95,7 @@ sub process {
 }
 
 #Extract all global variables into an array
+
 sub getGlobalsList {
    my $self = shift;
    my $root = $self->{$ROOT};
@@ -101,23 +103,22 @@ sub getGlobalsList {
    my %result;
    push( my @queue, @{ $root->{$CHILD_NUM}[0]->{$CHILD_NUM} } );
    my $container;
-   my $i;
    while ( my $item = shift @queue ) {
-      if ( $item->{$DATA}->{$TYPE} =~ /VarDecl/ ) {
+      if ( exists($item->{$DATA}->{$REST}->{$DECL_VAR_OBJ})) {
          my $curtId = $item->{$DATA}->{$ID};
          my $rootId = $curtId;
-         my $payload=$item->{$DATA}->{$REST}->{$DECL_VAR};
-         my $prevId = $payload->prevId();
+         my $payload_obj=$item->{$DATA}->{$REST}->{$DECL_VAR_OBJ};
+         my $prevId = $payload_obj->prevId();
          if ( defined($prevId) ){
             $rootId = $prevId;
          }
          $container=\@{$result{$rootId}};
          my $construct={
-            $PAYLOAD=>$payload,
-            $LOCATION=>$item->{$DATA}->{$START_LOC},
+            $PAYLOAD_OBJ=>$payload_obj,
+            $LOCATION_OBJ=>$item->{$DATA}->{$START_LOC_OBJ},
          };
 
-         if($payload->is_extern()){
+         if($payload_obj->is_extern()){
             push @$container,$construct;
          }
          else{
@@ -147,14 +148,27 @@ sub printGlobal {
          print (" "x5);
          print ("- ");
       }
-      print "File:  <". $item->{$LOCATION}->get_file_for()
-      . ">  Line:". $item->{$LOCATION}->get_line_for() . " | ";
-      print $item->{$PAYLOAD}->$GET_IS_USED_STRING($item). " | ";
-      print $item->{$PAYLOAD}->$VAR_NAME. " | ";
-      print $item->{$PAYLOAD}->$UNDERLYING_TYPE. " | ";
-      print $item->{$PAYLOAD}->$VAR_TYPE. " | ";
-      print "--CONST-- | " if $item->{$PAYLOAD}->$IS_CONST;
-      print "\n";
+      print "File:  <". $item->{$LOCATION_OBJ}->get_file_for()
+      . ">  Line:". $item->{$LOCATION_OBJ}->get_line_for() . " | ".$item->{$PAYLOAD_OBJ}->print_global_description()."\n";
+   }
+}
+
+
+sub testNamingConvention {
+   my $self = shift;
+   my $itemNum = shift;
+   foreach my $item(@$itemNum)
+   {
+      my $fileName=$item->{$LOCATION_OBJ}->get_file_for();
+      my $isHeader=$fileName=~/.h\s*$/i;
+      my ($isError,$namingErrorMsg) = $item->{$PAYLOAD_OBJ}->getAnyNamingConventionError($fileName, $isHeader);
+      if($isError){
+         print "Name-Error <". $item->{$LOCATION_OBJ}->get_file_for(). ">  Line ". $item->{$LOCATION_OBJ}->get_line_for() . ": ".$namingErrorMsg."\n";
+      }
+
+
+#      print "File:  <". $item->{$LOCATION_OBJ}->get_file_for()
+#      . ">  Line:". $item->{$LOCATION_OBJ}->get_line_for() . " | ".$item->{$PAYLOAD_OBJ}->print_global_description()."\n";
    }
 }
 
@@ -169,15 +183,15 @@ sub printTree {
            . $item->{$DATA}->{$TYPE} . ", "
            . $item->{$DATA}->{$ID} . ", " . "<<"
            . (
-                $item->{$DATA}->{$REGION}->{$START}->printableLoc()
+                $item->{$DATA}->{$REGION}->{$START_OBJ}->printableLoc()
            )
            . ">" . "<"
            . (
-                $item->{$DATA}->{$REGION}->{$END}->printableLoc()
+                $item->{$DATA}->{$REGION}->{$END_OBJ}->printableLoc()
            )
            . ">>" . "["
            . (
-                $item->{$DATA}->{$START_LOC}->printableLoc()
+                $item->{$DATA}->{$START_LOC_OBJ}->printableLoc()
            )
            . "]"
            . $item->{$DATA}->{$REST}->{$ORIGINAL} . "\n"
@@ -205,17 +219,17 @@ sub _getData {
    my ( $possibleStart, $rest ) = ( $1, $2 );
 
    my $emptyLoc = newEmptyLoc();
-   my $prevLoc = { $START => $emptyLoc, $END => $emptyLoc };
+   my $prevLoc = { $START_OBJ => $emptyLoc, $END_OBJ => $emptyLoc };
    if ( @$refSibblingNum && exists $refSibblingNum->[-1]->{$DATA}->{$REGION} ) {
       $prevLoc = $refSibblingNum->[-1]->{$DATA}->{$REGION};
    }
    my $region = _getNewTimeRegion( $prevLoc, $rawRegion );
-   my $startLoc = determineLocFrom( $region->{$START}, $possibleStart );
+   my $startLoc = determineLocFrom( $region->{$START_OBJ}, $possibleStart );
 
    my %globVar;
    my %body;
    if ( $type =~ /VarDecl/ ) {
-      $body{$DECL_VAR} =  astGlobalsObj::getVarDecl( $rest, $id, $prevId );
+      $body{$DECL_VAR_OBJ} =  astGlobalsObj::getVarDecl( $rest, $id, $prevId );
    }
    $body{$ORIGINAL} = $rest;
    return {
@@ -223,22 +237,22 @@ sub _getData {
       $ID        => $id,
       $REST      => \%body,
       $REGION    => $region,
-      $START_LOC => $startLoc,
+      $START_LOC_OBJ => $startLoc,
    };
 }
 
 
 sub _getNewTimeRegion {
    my ( $lastLoc, $rawRegion ) = @_;
-   my $loc = { $START => {}, $END => {} };
+   my $loc = { $START_OBJ => {}, $END_OBJ => {} };
    if ( $rawRegion =~ m/:/ ) {
       my ( $start, $end ) = split( /,/, $rawRegion );
-      $loc->{$START} = determineLocFrom( $lastLoc->{$END}, $start );
+      $loc->{$START_OBJ} = determineLocFrom( $lastLoc->{$END_OBJ}, $start );
       if ( defined $end ) {
-         $loc->{$END} = determineLocFrom( $loc->{$START}, $end );
+         $loc->{$END_OBJ} = determineLocFrom( $loc->{$START_OBJ}, $end );
       }
       else {
-         $loc->{$END} = $loc->{$START};
+         $loc->{$END_OBJ} = $loc->{$START_OBJ};
       }
    }
    else {

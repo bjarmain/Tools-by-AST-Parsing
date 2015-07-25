@@ -13,7 +13,10 @@ $ast->process;
 my $globalsRef=$ast->getGlobalsList();
 
 my $iterator;
+#for my $name(sort keys %$globalsRef){
+#   print ++$iterator . ': ';
+#   $ast->printGlobal($globalsRef->{$name});
+#}
 for my $name(sort keys %$globalsRef){
-   print ++$iterator . ': ';
-   $ast->printGlobal($globalsRef->{$name});
+   $ast->testNamingConvention($globalsRef->{$name});
 }
