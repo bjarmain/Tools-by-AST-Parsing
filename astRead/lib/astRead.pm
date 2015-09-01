@@ -1,8 +1,13 @@
 package astRead;
 
-use 5.006;
+use 5.010;
 use strict;
 use warnings FATAL => 'all';
+
+use Moo;
+
+use astGlobalsObj;
+use astFileLocn;
 
 =head1 NAME
 
@@ -35,103 +40,219 @@ if you don't export anything, such as for a purely object-oriented module.
 =head1 SUBROUTINES/METHODS
 
 =head2 new
-#%root
-#  $depth
-#  \@childNum
-#  \%data
-#     $type
-#     $id
-#     $rest
-#     \%region
-#        \%start
-#           $file
-#           $line
-#           $col
-#        \%end
-#           $file
-#           $line
-#           $col
-#     \%startLoc
-#        $file
-#        $line
-#        $col
-#
 
 =cut
 
-sub new {
-   my ( $context, $filename ) = @_;
+my $ROOT                    ='root';             # %
+my   $CHILD_NUM             ='childNum';         # @ note recursive childern
+my   $DEPTH                 ='depth';            # $
+my   $DATA                  ='data';             # %
+my     $TYPE                ='type';             # $
+my     $ID                  ='id';               # $  eg 0x4f3ad88
+my     $REST                ='rest';             # %
+my       $ORIGINAL          ='original';         # $
+my       $DECL_VAR_OBJ          ='varDecl';          # % obj
+my     $REGION              ='region';           # %
+my       $START_OBJ             ='start';            # % todo obj
+my       $END_OBJ               ='end';             # % todo obj
+my     $START_LOC_OBJ           ='startLoc';         # % todo obj
 
-   my %root = ( depth => 0, childNum => [] );
-   my $parent = \%root;
+
+my $PAYLOAD_OBJ='payload';
+my $LOCATION_OBJ='location';
+
+
+has filename => ( is => 'ro', );
+
+sub process {
+   my ($self) = @_;
+
+   $self->{$ROOT} = { $DEPTH => 0, $CHILD_NUM => [] };
+   my $parent = $self->{$ROOT};
    my @chain;
    my $lastDepth = 0;
-   open( my $fh, "<", $filename );
+   open( my $fh, "<", $self->{filename} ) or die $!;
    foreach my $line (<$fh>) {
       $line =~ m/^[^\w<]*(.*)/;
       my $depth    = $-[1];
       my $newChild = {
-         depth => $depth,
-         data  => getData( $parent->{childNum}, $1 ),
+         $DEPTH => $depth,
+         $DATA  => _getData( $parent->{$CHILD_NUM}, $1 ),
       };
       if ( $depth > $lastDepth ) {
          $lastDepth = $depth;
          push @chain, $parent;
-         $parent = ${ $parent->{childNum} }[-1];
+         $parent = ${ $parent->{$CHILD_NUM} }[-1];
       }
       else {
          while ( $depth < $lastDepth ) {
-            $lastDepth = $parent->{depth};
-            $parent = pop @chain;
+            $lastDepth = $parent->{$DEPTH};
+            $parent    = pop @chain;
          }
       }
-      push @{ $parent->{childNum} }, $newChild;
+      push @{ $parent->{$CHILD_NUM} }, $newChild;
    }
-   bless \%root, $context;
 }
 
-sub getData {
-   my ( $lastLine, $in ) = @_;
+#Extract all global variables into an array
+
+sub getGlobalsList {
+   my $self = shift;
+   my $root = $self->{$ROOT};
+
+   my %result;
+   push( my @queue, @{ $root->{$CHILD_NUM}[0]->{$CHILD_NUM} } );
+   my $container;
+   while ( my $item = shift @queue ) {
+      if ( exists($item->{$DATA}->{$REST}->{$DECL_VAR_OBJ})) {
+         my $curtId = $item->{$DATA}->{$ID};
+         my $rootId = $curtId;
+         my $payload_obj=$item->{$DATA}->{$REST}->{$DECL_VAR_OBJ};
+         my $prevId = $payload_obj->prevId();
+         if ( defined($prevId) ){
+            $rootId = $prevId;
+         }
+         $container=\@{$result{$rootId}};
+         my $construct={
+            $PAYLOAD_OBJ=>$payload_obj,
+            $LOCATION_OBJ=>$item->{$DATA}->{$START_LOC_OBJ},
+         };
+
+         if($payload_obj->is_extern()){
+            push @$container,$construct;
+         }
+         else{
+            unshift @$container, $construct;
+         }
+      }
+   }
+   return \%result;
+}
+
+#todo: extract all global variables into a list of arrays (one array per $FILE)
+#todo: extract all local variables into a list of arrays (one array per function)
+
+=head2 function2
+
+=cut
+
+
+
+sub printGlobal {
+   my $self = shift;
+   my $itemNum = shift;
+   my $i=0;
+   foreach my $item(@$itemNum)
+   {
+      if($i++ > 0){
+         print (" "x5);
+         print ("- ");
+      }
+      print "File:  <". $item->{$LOCATION_OBJ}->get_file_for()
+      . ">  Line:". $item->{$LOCATION_OBJ}->get_line_for() . " | ".$item->{$PAYLOAD_OBJ}->print_global_description()."\n";
+   }
+}
+
+
+sub testNamingConvention {
+   my $self = shift;
+   my $itemNum = shift;
+   foreach my $item(@$itemNum)
+   {
+      my $fileName=$item->{$LOCATION_OBJ}->get_file_for();
+      my $isHeader=$fileName=~/.h\s*$/i;
+      my ($isError,$namingErrorMsg) = $item->{$PAYLOAD_OBJ}->getAnyNamingConventionError($fileName, $isHeader);
+      if($isError){
+         print "Name-Error <". $item->{$LOCATION_OBJ}->get_file_for(). ">  Line ". $item->{$LOCATION_OBJ}->get_line_for() . ": ".$namingErrorMsg."\n";
+      }
+
+
+#      print "File:  <". $item->{$LOCATION_OBJ}->get_file_for()
+#      . ">  Line:". $item->{$LOCATION_OBJ}->get_line_for() . " | ".$item->{$PAYLOAD_OBJ}->print_global_description()."\n";
+   }
+}
+
+
+sub printTree {
+   my $self = shift;
+   my $root = $self->{$ROOT};
+   push( my @queue, @{ $root->{$CHILD_NUM} } );
+   while ( my $item = shift @queue ) {
+      print(
+             " " x $item->{$DEPTH}
+           . $item->{$DATA}->{$TYPE} . ", "
+           . $item->{$DATA}->{$ID} . ", " . "<<"
+           . (
+                $item->{$DATA}->{$REGION}->{$START_OBJ}->printableLoc()
+           )
+           . ">" . "<"
+           . (
+                $item->{$DATA}->{$REGION}->{$END_OBJ}->printableLoc()
+           )
+           . ">>" . "["
+           . (
+                $item->{$DATA}->{$START_LOC_OBJ}->printableLoc()
+           )
+           . "]"
+           . $item->{$DATA}->{$REST}->{$ORIGINAL} . "\n"
+      );
+      if ( exists $item->{$CHILD_NUM} ) {
+         unshift @queue, @{ $item->{$CHILD_NUM} };
+      }
+   }
+}
+
+sub _getData {
+   my ( $refSibblingNum, $in ) = @_;
    $in =~ m/
       ^[^\w<]*<*([\w]*)\s*>*       #$1 $type
       \s*(\S*)                     #$2 $id
-      [^<]*<*([^>]*)>*             #$3 $rawRegion
-      \s*(.*\S*)                   #$4 $rest
+      \s*(?:prev\s*(\S*))?         #$3 $prevId
+      [^<]*<*([^>]*)>*             #$4 $rawRegion
+      \s*(.*\S*)                   #$5 $rest
    /x;
-   my ( $type, $id, $rawRegion, $rawRest ) = ( $1, $2, $3, $4 );
+   my ( $type, $id, $prevId, $rawRegion, $rawRest ) = ( $1, $2, $3, $4, $5 );
    $rawRest =~ m/
    \s*((?:line|col)(?::\d*\s*)*)?  #$1 $possibleStart
       \s*(.*\S*)                   #$2 $rest
    /x;
    my ( $possibleStart, $rest ) = ( $1, $2 );
 
-   my %emptyLoc = ( file => "na", line => "na", col => "na" );
-   my $prevLoc = { start => \%emptyLoc, end => \%emptyLoc };
-   if ( @$lastLine && exists $lastLine->[-1]->{data}->{region} ) {
-      $prevLoc = $lastLine->[-1]->{data}->{region};
+   my $emptyLoc = newEmptyLoc();
+   my $prevLoc = { $START_OBJ => $emptyLoc, $END_OBJ => $emptyLoc };
+   if ( @$refSibblingNum && exists $refSibblingNum->[-1]->{$DATA}->{$REGION} ) {
+      $prevLoc = $refSibblingNum->[-1]->{$DATA}->{$REGION};
    }
-   my $region = getNewTimeRegion( $prevLoc, $rawRegion );
-   my $startLoc = determineLocFrom( $region->{start}, $possibleStart );
+   my $region = _getNewTimeRegion( $prevLoc, $rawRegion );
+   my $startLoc = determineLocFrom( $region->{$START_OBJ}, $possibleStart );
+
+   my %globVar;
+   my %body;
+   if ( $type =~ /VarDecl/ ) {
+      $body{$DECL_VAR_OBJ} =  astGlobalsObj::getVarDecl( $rest, $id, $prevId );
+   }
+   $body{$ORIGINAL} = $rest;
    return {
-      type     => $type,
-      id       => $id,
-      region   => $region,
-      startLoc => $startLoc,
-      rest     => $rest,
+      $TYPE      => $type,
+      $ID        => $id,
+      $REST      => \%body,
+      $REGION    => $region,
+      $START_LOC_OBJ => $startLoc,
    };
 }
 
-sub getNewTimeRegion {
+
+sub _getNewTimeRegion {
    my ( $lastLoc, $rawRegion ) = @_;
-   my $loc = { start => {}, end => {} };
+   my $loc = { $START_OBJ => {}, $END_OBJ => {} };
    if ( $rawRegion =~ m/:/ ) {
       my ( $start, $end ) = split( /,/, $rawRegion );
-      $loc->{start} = determineLocFrom( $lastLoc->{end}, $start );
+      $loc->{$START_OBJ} = determineLocFrom( $lastLoc->{$END_OBJ}, $start );
       if ( defined $end ) {
-         $loc->{end} = determineLocFrom( $loc->{start}, $end );
+         $loc->{$END_OBJ} = determineLocFrom( $loc->{$START_OBJ}, $end );
       }
       else {
-         $loc->{end} = $loc->{start};
+         $loc->{$END_OBJ} = $loc->{$START_OBJ};
       }
    }
    else {
@@ -140,99 +261,6 @@ sub getNewTimeRegion {
    return $loc;
 }
 
-sub determineLocFrom {
-   my ( $lastLoc, $raw ) = @_;
-   my %loc = ();
-   %loc = %$lastLoc if defined $lastLoc;
-   my ( $a, $b, $c );
-   ( $a, $b, $c ) = split( /:/, $raw ) if defined $raw;
-   if ( defined $a ) {
-      if ( defined $c ) {
-         $loc{col} = $c;
-      }
-
-      if ( $a !~ m/\A\s*(line|col)\s*\Z/i ) {
-         $loc{file} = $a;
-         $loc{line} = $b if defined $b;
-      }
-
-      if ( $a =~ m/\A(line)\Z/i ) {
-         $loc{line} = $b;
-      }
-
-      if ( $a =~ m/\A\s*(col)\s*\Z/i ) {
-         $loc{col} = $b;
-      }
-   }
-   $loc{file}=rationalizePath($loc{file});
-   return \%loc;
-}
-use File::Spec;
-
-sub rationalizePath{
-   my $pathToRationalize=shift;
-   $pathToRationalize =~ s/\\/\//g;
-   $pathToRationalize = File::Spec->canonpath($pathToRationalize);
-   my ($volume,$directories,$file) = File::Spec->splitpath( $pathToRationalize );
-   my @dirs=File::Spec->splitdir($directories);
-   my @newDirs;
-   foreach my $dirSeg(@dirs){
-      if($dirSeg eq '..' && @newDirs &&  $newDirs[-1] ne '..'){
-         pop @newDirs;
-      }
-      else{
-         push @newDirs,$dirSeg;
-      }
-   }
-   $directories=File::Spec->catdir(@newDirs);
-   $pathToRationalize=File::Spec->catpath($volume,$directories,$file);
-   return $pathToRationalize;
-
-}
-
-
-#todo: extract all global variables into an array
-#todo: extract all global variables into a list of arrays (one array per file)
-#todo: extract all local variables into a list of arrays (one array per function)
-
-=head2 function2
-
-=cut
-
-sub printTree {
-   my $self = shift;
-   my $root = $self;
-   push( my @queue, @{ $root->{childNum} } );
-   while ( my $item = shift @queue ) {
-      print(
-             " " x $item->{depth}
-           . $item->{data}->{type} . ", "
-           . $item->{data}->{id} . ", " . "<<"
-           . (
-                $item->{data}->{region}->{start}->{file} . ": "
-              . $item->{data}->{region}->{start}->{line} . ": "
-              . $item->{data}->{region}->{start}->{col}
-           )
-           . ">" . "<"
-           . (
-                $item->{data}->{region}->{end}->{file} . ": "
-              . $item->{data}->{region}->{end}->{line} . ": "
-              . $item->{data}->{region}->{end}->{col}
-           )
-           . ">>" . "["
-           . (
-                $item->{data}->{startLoc}->{file} . ": "
-              . $item->{data}->{startLoc}->{line} . ": "
-              . $item->{data}->{startLoc}->{col}
-           )
-           . "]"
-           . $item->{data}->{rest} . "\n"
-      );
-      if ( exists $item->{childNum} ) {
-         unshift @queue, @{ $item->{childNum} };
-      }
-   }
-}
 
 =head1 AUTHOR
 

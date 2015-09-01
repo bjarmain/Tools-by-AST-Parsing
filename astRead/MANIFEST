@@ -1,8 +1,14 @@
+.directory
+.project
+AST.txt
 Build.PL
 Changes
+lib/astFileLocn.pm
+lib/astGlobalsObj.pm
 lib/astRead.pm
 MANIFEST			This list of files
 README
+runAst.pl
 t/00-load.t
 t/boilerplate.t
 t/manifest.t
